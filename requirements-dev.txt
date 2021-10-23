@@ -1,0 +1,4 @@
+ipykernel
+twine
+black
+flake8

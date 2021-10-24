@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 
 import astroid
 
@@ -15,12 +15,10 @@ class ArgumentData:
 
 class DecoratorsData:
     def __init__(self, decorators: astroid.Decorators) -> None:
-        # TODO: handle if a decorator is not a astroid.Name,
-        # but an astroid.Callable, e.g. @deco_1(param="a")
+        # TODO: handle decorators better than just as_string()
+        # e.g. for an astroid.Callable like @deco_1(param="a")
         self.decorators: List[str] = (
-            []
-            if decorators is None
-            else [dec.name for dec in decorators.nodes if isinstance(dec, astroid.Name)]
+            [] if decorators is None else [dec.as_string() for dec in decorators.nodes]
         )
 
 
@@ -31,6 +29,8 @@ class FunctionData:
             "" if not func_def.returns else func_def.returns.as_string()
         )
 
+        # TODO: AnnAssign vs Assign, first is Annotated Assign
+        # so we know when there is type annotation available
         self.arguments: List[ArgumentData] = []
         arg: astroid.AssignName
         # arg_type: something-with-a as_string() method
@@ -53,6 +53,15 @@ class ClassData:
         ]
         self.decorators: List[str] = DecoratorsData(class_def.decorators).decorators
 
+        cls_vars = [e for e in class_def.body if isinstance(e, astroid.AnnAssign)]
+
+        # TODO: make cls_var its own type?
+        self.cls_vars: List[Tuple[str, str]] = []
+        for cls_var in cls_vars:
+            target_name = cls_var.target.name
+            annotation = cls_var.annotation.as_string() if cls_var.annotation else None
+            self.cls_vars.append((target_name, annotation))
+
     def __str__(self) -> str:
         return f"{self.name}"
 
@@ -63,6 +72,8 @@ class ModuleData:
         func_defs = [e for e in module.body if isinstance(e, astroid.FunctionDef)]
         self.classes: List[ClassData] = [ClassData(c) for c in class_defs]
         self.functions: List[FunctionData] = [FunctionData(f) for f in func_defs]
+
+        # TODO: add global variables
 
     def __str__(self) -> str:
         return ""

@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict, List, Tuple
 from xml.etree import ElementTree as ET
 from pathlib import Path
 
@@ -15,8 +15,8 @@ class Element(ET.Element):
 
 class TextElement(ET.Element):
     """Shortcut to creating a span element with text.
-        Text is the first positional argument, 
-        instead of an attribute that has to be defined via assignment.
+    Text is the first positional argument,
+    instead of an attribute that has to be defined via assignment.
     """
 
     def __init__(self, text: str, attrib={}) -> None:
@@ -84,6 +84,32 @@ class DecoratorLayout(ET.Element):
             self.append(ET.Element("br"))
 
 
+class ClassVariableLayout(ET.Element):
+    def __init__(self, class_var: Tuple[str, str]) -> None:
+        super().__init__("div", attrib={"class": "class_variable"})
+
+        self.append(
+            TextElement(f"{class_var[0]}", attrib={"class": "class_variable_name"})
+        )
+        if class_var[1]:
+            self.append(TextElement(": "))
+            self.append(
+                TextElement(f"{class_var[1]}", attrib={"class": "class_variable_type"})
+            )
+
+
+class BasenamesLayout(ET.Element):
+    """ """
+
+    def __init__(self, basenames: List[str]) -> None:
+        super().__init__("span", attrib={"class": "class_basenames"})
+        # TODO: handle multiline basenames, similar to arguments layout
+        for i, basename in enumerate(basenames):
+            self.append(TextElement(basename, attrib={"class": "class_basename"}))
+            if i < len(basenames) - 1:
+                self.append(TextElement(", "))
+
+
 class FunctionLayout(ET.Element):
     def __init__(self, func_data: FunctionData) -> None:
         super().__init__("div", attrib={"class": "function"})
@@ -97,6 +123,10 @@ class FunctionLayout(ET.Element):
         ]
         elems += self._arguments_layout(func_data)
 
+        # linebreak after function
+        # NOTE: this only works for multiline arguments atm
+        # which might be desirable.
+        elems += [ET.Element("br")]
         for elem in elems:
             self.append(elem)
 
@@ -128,29 +158,46 @@ class FunctionLayout(ET.Element):
 
 
 class ClassLayout(ET.Element):
+    """ """
+
     def __init__(self, class_data: ClassData) -> None:
         super().__init__("div", attrib={"class": "class"})
 
         # decorators
         elems = [
             DecoratorLayout(class_data.decorators),
-            Element("span", text="class", attrib={"class": "class_def"}),
-            Element("span", text=" "),
-            Element("span", text=class_data.name, attrib={"class": "class_name"}),
+            TextElement("class", attrib={"class": "class_def"}),
+            TextElement(" "),
+            TextElement(class_data.name, attrib={"class": "class_name"}),
+            TextElement("("),
+            BasenamesLayout(class_data.basenames),
+            TextElement(")"),
         ]
-        for elem in elems:
-            self.append(elem)
+
+        ul = ET.Element("ul")
+
+        # class variables
+        for cls_var in class_data.cls_vars:
+            li = ET.Element("li")
+            ul.append(li)
+            li.append(ClassVariableLayout(cls_var))
 
         # methods
-        ul = ET.Element("ul")
         for method in class_data.methods:
             li = ET.Element("li")
             ul.append(li)
             li.append(FunctionLayout(method))
+
+        for elem in elems:
+            self.append(elem)
         self.append(ul)
+        # line break after class
+        self.append(ET.Element("br"))
 
 
 class ModuleLayout(ET.Element):
+    """ """
+
     def __init__(self, filepath: Path, module: ModuleData) -> None:
         super().__init__("div", attrib={"class": "module"})
 
@@ -158,12 +205,16 @@ class ModuleLayout(ET.Element):
 
         ul = ET.Element("ul")
 
+        # TODO: add global module variables
+
+        # functions
         for func in module.functions:
             li = ET.Element("li")
             ul.append(li)
             li.append(FunctionLayout(func))
             li.append(ET.Element("br"))
 
+        # classes
         for cls in module.classes:
             li = ET.Element("li")
             ul.append(li)

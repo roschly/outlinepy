@@ -10,10 +10,7 @@ from xml.etree import ElementTree as ET
 from .data_types import ModuleData
 from .text_layouts import ModuleLayout as ModuleLayoutText
 from .html_layouts import ModuleLayout as ModuleLayoutHtml
-
-# name of txt file containing outline
-# if to-txt flag enabled
-DEFAULT_TXT_FILENAME = "_outline_"
+from .default_styling import get_default_styling
 
 
 def parse_args() -> Namespace:
@@ -25,9 +22,9 @@ def parse_args() -> Namespace:
         help="include '**/test_*.py' files in outline.",
     )
     parser.add_argument(
-        "--incl",
+        "--xincl",
         type=str,
-        help="""only include filepaths that match INCL glob pattern. 
+        help="""Exclusively include filepaths that match XINCL glob pattern. 
         E.g. '**/dirA/*.py' only include .py files in any directory called 'dirA'.""",
     )
     parser.add_argument(
@@ -36,14 +33,14 @@ def parse_args() -> Namespace:
         help="use absolute (instead of relative) path of each .py file.",
     )
     parser.add_argument(
-        "--to-txt",
+        "--get-default-styling",
         action="store_true",
-        help=f"Save outline to '{DEFAULT_TXT_FILENAME}'.txt file.",
+        help="Outputs the CSS default styling used for html output.",
     )
     parser.add_argument(
-        "--to-html",
-        action="store_true",
-        help=f"Save outline as HTML to '{DEFAULT_TXT_FILENAME}'.html file.",
+        "--styling-css",
+        type=str,
+        help="Supply a CSS file that will be used to style the html output instead of the default styling.",
     )
     return parser.parse_args()
 
@@ -57,29 +54,21 @@ def build_output_string(path_and_modules: List, absolute_path: bool, root: Path)
     return s
 
 
-def build_html_string(path_and_modules: List, absolute_path: bool, root: Path) -> str:
-    # TODO: add css internal style
+def build_html_tree(
+    path_and_modules: List[Tuple[Path, astroid.Module]],
+    absolute_path: bool,
+    root: Path,
+    styling: str,
+) -> ET.Element:
     html = ET.Element("html")
     head = ET.Element("head")
     html.append(head)
 
+    # load default css styling as internal css (to avoid dependence on external css file).
+    # TODO: allow override with user specified configs
     style = ET.Element("style")
-    style.text = """
-    body {
-            background-color: #1e1e1e;
-            color: white;
-            font-family:
-            monospace, monaco;
-        }
-    ul   {list-style-type: none;}
-    
-    .module_path {color: green;}
-    .function_def {color: #03a1fc;}
-    .function_return_type {color: #32cfc9; font-style: italic;}
-    .class_def {color: #03a1fc;}
-    .decorator {color: yellow;}
-    .argument_type {color: #32cfc9; font-style: italic;}
-    """
+    style.text = styling
+
     head.append(style)
 
     body = ET.Element("body")
@@ -98,7 +87,21 @@ def build_html_string(path_and_modules: List, absolute_path: bool, root: Path) -
 def main():
     """ """
 
+    css_styling = get_default_styling()
+
     args: Namespace = parse_args()
+
+    # output default css styling
+    if args.get_default_styling:
+        print(css_styling)
+        return
+
+    if args.styling_css:
+        css_path = Path(args.styling_css)
+        if not css_path.exists() or css_path.suffix != ".css":
+            raise ValueError("CSS file must exist and have .css as extension.")
+        with open(css_path) as fh:
+            css_styling = fh.read()
 
     root = Path.cwd() / Path(args.dir)
     if not root.is_dir():
@@ -112,17 +115,17 @@ def main():
     paths_to_ignore = []
     if not args.include_test:
         paths_to_ignore += list(root.rglob("**/test_*.py"))
-    if args.incl:
-        # ignore all other filepaths than those found via incl glob pattern.
+    if args.xincl:
+        # ignore all other filepaths than those found via xincl glob pattern.
         paths_to_ignore += [
-            f for f in filepaths if f not in list(root.rglob(args.incl))
+            f for f in filepaths if f not in list(root.rglob(args.xincl))
         ]
         if len(paths_to_ignore) == len(filepaths):
             logging.warning(
-                f"All filepaths are being ignored with the current INCL glob pattern: {args.incl}"
+                f"All filepaths are being ignored with the current XINCL glob pattern: {args.xincl}"
             )
 
-    # combine each python module with its Abstract Syntax Tree
+    # combine each python file with its module Abstract Syntax Tree
     path_and_modules: List[Tuple[Path, astroid.Module]] = []
     for filepath in [f for f in filepaths if f not in paths_to_ignore]:
         try:
@@ -135,27 +138,16 @@ def main():
             )
             logging.warning(e)
 
-    # save as html
-    if args.to_html:
-        html = build_html_string(
-            path_and_modules=path_and_modules,
-            absolute_path=args.absolute_path,
-            root=root,
-        )
-        ET.ElementTree(html).write(sys.stdout, encoding="unicode", method="html")
-        return
-
-    # save as text, either print to terminal or save to file
-    s = build_output_string(
+    # build html tree
+    html: ET.Element = build_html_tree(
         path_and_modules=path_and_modules,
         absolute_path=args.absolute_path,
         root=root,
+        styling=css_styling,
     )
-    if args.to_txt:
-        with open(DEFAULT_TXT_FILENAME + ".txt", "w") as fh:
-            fh.write(s)
-    else:
-        print(s)
+
+    # write HTML to stdout
+    ET.ElementTree(html).write(sys.stdout, encoding="unicode", method="html")
 
 
 if __name__ == "__main__":
